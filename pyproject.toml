@@ -1,0 +1,17 @@
+[project]
+name = "com-farmc-classwidgets-weather"
+version = "0.1.7"
+description = "A QWeather widget plugin for ClassWidgets 2."
+authors = [
+    {name = "FarMC"},
+]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["class-widgets-sdk>=0.6.0,<0.7.0"]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"

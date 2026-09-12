@@ -1,0 +1,26 @@
+ClassWidgets 2 天气插件 - 第三方声明
+
+QWeather / 和风天气
+--------------------
+天气、预报、预警与地区数据由 QWeather / 和风天气提供。
+https://www.qweather.com/
+https://dev.qweather.com/docs/terms/attribution/
+
+QWeather Icons
+--------------
+本插件 assets/icons 目录中的天气 SVG 图标来源于 QWeather Icons：
+https://github.com/qwd/Icons
+
+Copyright (c) QWeather
+该图标仓库按 MIT License 分发；许可证全文随图标保存为
+assets/icons/LICENSE-QWEATHER-ICONS。
+
+ipwho.is
+--------
+自动定位使用 ipwho.is 公网 IP 地理定位服务：
+https://ipwho.is/
+
+ClassWidgets 2
+--------------
+本插件面向 ClassWidgets 2 插件 API ~=0.6.0 开发：
+https://github.com/RinLit-233-shiroko/Class-Widgets-2

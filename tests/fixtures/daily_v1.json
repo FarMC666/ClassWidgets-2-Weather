@@ -1,0 +1,14 @@
+{
+  "days": [
+    {
+      "temperatureMax": {
+        "value": 29,
+        "unit": "celsius"
+      },
+      "temperatureMin": {
+        "value": 20,
+        "unit": "celsius"
+      }
+    }
+  ]
+}

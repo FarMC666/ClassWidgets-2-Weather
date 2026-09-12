@@ -48,15 +48,15 @@ cw-plugin-pack .
 
 ## 发布
 
-发布流程沿用 [ClassWidgets 2 插件模板](https://github.com/Class-Widgets/plugin-template-v2)：
+本项目没有直接套用 ClassWidgets 2 官方插件模板，版本由维护者手动发布：
 
-1. 从[插件广场控制台](https://plaza.cw.rinlit.cn/console)获取发布令牌，并在 GitHub 仓库的 Actions secrets 中保存为 `CWPT_TOKEN`。
-2. 推送形如 `v0.1.7` 的版本标签。
-3. GitHub Actions 自动生成 `.cwplugin` 和 `.zip`、发布到插件广场，并创建带附件的 GitHub Release。
+1. 使用 ClassWidgets SDK 生成 `.cwplugin` 和 `.zip` 安装包。
+2. 在 [GitHub Releases](https://github.com/FarMC666/ClassWidgets-2-Weather/releases) 创建对应版本并上传安装包。
+3. 在[插件广场控制台](https://plaza.cw.rinlit.cn/console)填写仓库及版本信息，提交审核。
 
 ```powershell
-git tag v0.1.7
-git push origin v0.1.7
+cw-plugin-pack .
+cw-plugin-pack --format zip .
 ```
 
 ## 图标与署名

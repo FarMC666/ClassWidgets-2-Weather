@@ -46,6 +46,19 @@ python -m unittest discover -s tests -v
 cw-plugin-pack .
 ```
 
+## 发布
+
+发布流程沿用 [ClassWidgets 2 插件模板](https://github.com/Class-Widgets/plugin-template-v2)：
+
+1. 从[插件广场控制台](https://plaza.cw.rinlit.cn/console)获取发布令牌，并在 GitHub 仓库的 Actions secrets 中保存为 `CWPT_TOKEN`。
+2. 推送形如 `v0.1.7` 的版本标签。
+3. GitHub Actions 自动生成 `.cwplugin` 和 `.zip`、发布到插件广场，并创建带附件的 GitHub Release。
+
+```powershell
+git tag v0.1.7
+git push origin v0.1.7
+```
+
 ## 图标与署名
 
 插件图标为项目自有图标。小组件中的天气状态图标来自 [QWeather Icons](https://github.com/qwd/Icons)，随插件本地打包并按主题文字颜色着色。图标仓库许可见 `assets/icons/LICENSE-QWEATHER-ICONS`；额外署名说明见 [NOTICE](NOTICE)。天气数据界面始终显示可点击的 `QWeather` 来源标注，预警详情同时展示接口提供的来源信息。

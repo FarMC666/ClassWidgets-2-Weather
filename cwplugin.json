@@ -6,6 +6,7 @@
   "entry": "main.py",
   "author": "FarMC",
   "description": "使用和风天气数据的 ClassWidgets 2 天气小组件",
+  "url": "https://github.com/FarMC666/ClassWidgets-2-Weather",
   "readme": "README.md",
   "icon": "assets/plugin-icon.svg"
 }

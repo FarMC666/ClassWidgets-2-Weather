@@ -6,7 +6,8 @@
 
 - 默认每 30 分钟刷新，可按小组件实例设置为 15–360 分钟。
 - 使用 `ipwho.is` 在每次 ClassWidgets 启动时进行一次公网 IP 近似定位。
-- 可通过和风天气 GeoAPI 搜索并保存中国区县；重启后会根据名称和上级行政区重新解析。
+- 可通过和风天气 GeoAPI 搜索全球城市和地区，结果包含国家及行政区以区分同名城市；新选择保存 Location ID，重启或切换语言后仍解析同一地点。
+- 界面支持简体中文、繁体中文、英文和日文，跟随 ClassWidgets 语言；其他界面语言回退英文。城市名称、天气现象和预警内容按宿主语言向 QWeather 请求。
 - 同一坐标的多个实例共享缓存并合并正在进行的请求。
 - 有预警时以优先级最高的一条预警替换最高/最低温一行；点击可展开详情。
 - 点击预警详情或 QWeather 来源链接不会触发小组件栏的轻触行为，其他区域仍遵循软件中的轻触设置。
@@ -25,8 +26,28 @@ API Host 必须为控制台分配的 HTTPS `*.qweatherapi.com` 域名。API KEY 
 
 - 天气、预报、预警和地区搜索来自 [QWeather / 和风天气](https://www.qweather.com/)。
 - 自动定位会向 [ipwho.is](https://ipwho.is/) 发送常规 HTTPS 请求；该服务根据请求方公网 IP 返回近似位置。本插件不主动提交 API KEY、精确设备位置或其他身份信息给该服务。
-- IP 定位可能受 VPN、代理或运营商出口影响，只按城市显示“IP 近似”结果，不承诺区县精度。检测到境外公网 IP 时自动定位会停止并提示关闭 VPN 或改用自定义地区，避免误显示境外城市天气。
+- IP 定位可能受 VPN、代理或运营商出口影响，只按城市显示“IP 近似”结果，不承诺区县精度。全球有效坐标均可用于定位；结果不准确时可改用自定义地区。GeoAPI 反向查询失败时仍保留 IP 服务的近似坐标和城市信息。
 - 天气数据仅在内存中缓存到本次 ClassWidgets 会话结束。
+
+## 全球覆盖与配置兼容
+
+继续使用 QWeather `/geo/v2/city/lookup`、`/weather/v1/current`、`/weather/v1/daily` 和 `/weatheralert/v1/current`。GeoAPI 查询不设置 `range`，按[官方城市搜索文档](https://dev.qweather.com/en/docs/api/geoapi/city-lookup/)搜索全球城市；天气按经纬度请求，温度保持摄氏度，日预报仍使用目标地点的当地日期。界面中的更新时间、预警时间沿用设备本地时区。
+
+[预警覆盖](https://dev.qweather.com/en/docs/api/warning/alert-coverage/)与全球天气覆盖不同，受国家、发布机构和服务权限影响。成功返回空列表或 `metadata.zeroResult` 表示没有返回预警数据，不能据此判断该地区一定有预警覆盖或没有灾害；插件不会显示“当地安全”等结论。预警请求失败或格式无效时，正常天气仍显示，并标记预警暂不可用；已有预警按原逻辑保留并标记待更新。非中文预警使用接口标题或事件名称，避免附加中文颜色和“预警”后缀。服务端文本可能按 QWeather 的[语言回退规则](https://dev.qweather.com/en/docs/resource/language/)返回当地语言或英文。
+
+原有 `api_host`、`api_key`、`location_mode`、`custom_name`、`custom_adm`、`custom_label` 和 `refresh_minutes` 保持兼容，无需迁移配置。新选择仅增加可选的 `custom_id`、`custom_country`。旧配置仍按名称和行政区查询；如果全球查询存在无法唯一确定的同名结果，会提示重新选择，不会静默切换城市。
+
+## 国际化实现
+
+修改前核对了 ClassWidgets 2 官方 `main` 的源码（提交 `94885c1a2f12d32ef007e06d9ec0320f0fd14e01`）：[AppTranslator](https://github.com/RinLit-233-shiroko/Class-Widgets-2/blob/94885c1a2f12d32ef007e06d9ec0320f0fd14e01/src/core/utils/translator.py) 使用 Qt `QTranslator`、`.ts/.qm` 和 `QLocale`；[公共插件 API](https://github.com/RinLit-233-shiroko/Class-Widgets-2/blob/94885c1a2f12d32ef007e06d9ec0320f0fd14e01/src/core/plugin/components.py) 提供 `globalconfig.configs`，未提供单独的插件翻译目录加载接口。因此插件复用 Qt 翻译系统，通过 `configChanged` 跟随 `locale.language`，仅管理自身翻译文件的安装与卸载，不额外保存语言配置。
+
+翻译文件位于 `locales/`，QML 使用 `qsTranslate`，Python 使用 `QCoreApplication.translate`，上下文统一为 `Weather`。切换宿主语言会刷新注册标题、取消旧请求、清除旧语言缓存并重新请求地点与天气；不会为了更换语言再次检测已取得的公网 IP 坐标。繁体中文地区映射为 QWeather `zh-hant`，其他语言按官方支持代码映射，未支持的代码回退 `en`。
+
+修改 `.ts` 后请重新生成并一同提交 `.qm`；SDK 打包会包含这些文件：
+
+```powershell
+pyside6-lrelease locales/zh_CN.ts locales/zh_HK.ts locales/en_US.ts locales/ja_JP.ts
+```
 
 ## 开发与测试
 
@@ -39,6 +60,8 @@ python -m unittest discover -s tests -v
 安装 PySide6 和 RinUI 后，同一命令还会运行真实 QML 设置页回归测试，在只有 `WidgetsModel`、没有 `PluginBackendBridge` 的小组件窗口环境中覆盖状态读取、立即刷新、延迟绑定实例、搜索成功／失败／超时和未保存的地区选择；未安装时自动跳过该项。
 
 交互回归测试会发送实际鼠标和触摸事件，检查预警详情及来源链接不会触发宿主隐藏，同时保留普通区域点击和右键菜单。
+
+国际化与全球地区测试覆盖翻译完整性、占位符与编译目录一致性、三个真实 QML 页面的语言切换、插件注册与卸载、海外 IP、无效坐标、同名城市与 Location ID、旧配置、旧语言回调隔离、GeoAPI 错误码及预警空数据／请求失败。测试使用离线响应，不需要真实 API KEY。
 
 打包：
 

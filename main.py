@@ -8,6 +8,7 @@ from pydantic import Field
 from ClassWidgets.SDK import CW2Plugin, ConfigBaseModel, PluginAPI
 
 from weather_backend import WeatherBackend
+from weather_i18n import WeatherTranslations, translate
 
 
 class WeatherConfig(ConfigBaseModel):
@@ -27,6 +28,8 @@ class Plugin(CW2Plugin):
         super().__init__(api)
         self.config = WeatherConfig()
         self.backend = WeatherBackend(self)
+        self.translations = None
+        self._ui_registered = False
         self.backend.credentialsTested.connect(self.credentialsTested.emit)
         self.backend.weatherUpdated.connect(self.weatherUpdated.emit)
         self.backend.weatherFailed.connect(self.weatherFailed.emit)
@@ -81,9 +84,30 @@ class Plugin(CW2Plugin):
         self.api.config.register_plugin_model(self.pid, self.config)
         self.backend.bind_config(self.config, self.api.config.save)
         self.backend.set_icon_directory(Path(self.PATH) / "assets" / "icons")
+        self.translations = WeatherTranslations(self)
+        self.translations.languageChanged.connect(self._language_changed)
+        self.translations.bind(self.api.globalconfig.configs)
+
+    def _language_changed(self, language):
+        self.backend.set_language(language, translate)
+        self.meta["name"] = translate("天气")
+        self.meta["description"] = translate("使用和风天气数据的 ClassWidgets 2 天气小组件")
+        # SDK registration uses the current plugin context, which may now belong
+        # to another plugin when a global language change arrives.
+        previous = self.api.current_plugin
+        self.api.set_current_plugin(self)
+        try:
+            if self._ui_registered:
+                self.api.ui.unregister_settings_page("qml/PluginSettings.qml")
+            self._register_ui()
+            self._ui_registered = True
+        finally:
+            self.api.set_current_plugin(previous)
+
+    def _register_ui(self):
         self.api.widgets.register(
             widget_id="com.farmc.classwidgets.weather.widget",
-            name="天气",
+            name=translate("天气"),
             qml_path="qml/WeatherWidget.qml",
             backend_obj=self.backend,
             settings_qml="qml/WeatherWidgetSettings.qml",
@@ -92,19 +116,27 @@ class Plugin(CW2Plugin):
                 "custom_name": "",
                 "custom_adm": "",
                 "custom_label": "",
+                "custom_id": "",
+                "custom_country": "",
                 "refresh_minutes": 30,
             },
         )
         self.api.ui.register_settings_page(
             qml_path="qml/PluginSettings.qml",
-            title="天气",
+            title=translate("天气"),
             icon="ic_fluent_weather_sunny_20_regular",
         )
 
     def on_unload(self):
         self.backend.shutdown()
+        if self.translations is not None:
+            self.translations.shutdown()
+        previous = self.api.current_plugin
+        self.api.set_current_plugin(self)
         try:
             self.api.ui.unregister_settings_page("qml/PluginSettings.qml")
         except Exception:
             pass
+        finally:
+            self.api.set_current_plugin(previous)
         super().on_unload()

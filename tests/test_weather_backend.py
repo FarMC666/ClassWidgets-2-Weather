@@ -3,6 +3,7 @@ import types
 import unittest
 from enum import IntEnum
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlsplit
 
 
 class _BoundSignal:
@@ -250,7 +251,7 @@ class WeatherBackendCoordinationTests(unittest.TestCase):
         self.assertIn("请求被拒绝", self.backend._friendly_error(403, ""))
         self.assertIn("额度", self.backend._friendly_error(429, ""))
 
-    def test_foreign_ip_is_rejected_for_auto_location(self):
+    def test_foreign_ip_is_accepted_with_geo_failure_fallback(self):
         self.backend._auto_location = None
         self.backend._instances["a"] = {
             "settings": {"location_mode": "auto", "refresh_minutes": 30},
@@ -270,9 +271,121 @@ class WeatherBackendCoordinationTests(unittest.TestCase):
             None,
         )
 
+        path, callback = self.backend.requests[-1]
+        self.assertNotIn("range", parse_qs(urlsplit(path).query))
+        callback(None, "Geo service unavailable")
         self.assertFalse(self.backend._auto_inflight)
-        self.assertIsNone(self.backend._auto_location)
-        self.assertIn("VPN", self.backend.weatherFailed.emissions[-1][1])
+        self.assertEqual(self.backend._auto_location["longitude"], -118.24)
+        self.assertIn("Los Angeles", self.backend._auto_location["label"])
+        self.assertIn("IP 近似", self.backend._auto_location["label"])
+        self.assertEqual(len(self.backend.requests), 4)
+
+    def test_global_search_and_credentials_use_host_language(self):
+        for locale, lang in [("en_US", "en"), ("ja_JP", "ja"), ("zh_HK", "zh-hant")]:
+            self.backend.set_language(locale, str)
+            self.backend.searchLocations("search", "東京")
+            params = parse_qs(urlsplit(self.backend.requests[-1][0]).query)
+            self.assertEqual(params["lang"], [lang])
+            self.assertEqual(params["location"], ["東京"])
+            self.assertNotIn("range", params)
+            self.backend.testCredentials()
+            self.assertIn("lang=" + lang, self.backend.requests[-1][0])
+
+    def test_location_id_survives_restart_and_translated_name(self):
+        settings = {"location_mode": "custom", "custom_id": "GB-LONDON",
+                    "custom_name": "伦敦", "custom_adm": "英格兰", "custom_country": "英国"}
+        self.backend.set_language("en_US", str)
+        self.backend.subscribe("london", settings)
+        path, callback = self.backend.requests[-1]
+        params = parse_qs(urlsplit(path).query)
+        self.assertEqual(params["location"], ["GB-LONDON"])
+        self.assertNotIn("adm", params)
+        callback({"location": [
+            {"id": "CA-LONDON", "name": "London", "country": "Canada", "lat": 42.98, "lon": -81.25},
+            {"id": "GB-LONDON", "name": "London", "country": "United Kingdom", "lat": 51.51, "lon": -0.13}
+        ]}, None)
+        self.assertEqual(self.backend._instances["london"]["location"]["key"], "51.51,-0.13")
+        for path, _ in self.backend.requests[-3:]:
+            self.assertIn("/51.51/-0.13?", path)
+            self.assertIn("lang=en", path)
+
+    def test_legacy_settings_still_resolve_and_preserve_credentials(self):
+        old = {"location_mode": "custom", "custom_name": "海淀", "custom_adm": "北京",
+               "custom_label": "海淀 · 北京", "refresh_minutes": 45}
+        self.backend.subscribe("legacy", old)
+        params = parse_qs(urlsplit(self.backend.requests[-1][0]).query)
+        self.assertEqual(params["location"], ["海淀"])
+        self.assertEqual(params["adm"], ["北京"])
+        self.backend.requests[-1][1]({"location": [
+            {"id": "101010200", "name": "海淀", "adm1": "北京", "lat": 39.96, "lon": 116.30}
+        ]}, None)
+        self.assertEqual(self.backend._instances["legacy"]["location"]["key"], "39.96,116.30")
+        self.assertEqual(self.backend._instances["legacy"]["settings"]["refresh_minutes"], 45)
+        self.assertEqual(self.backend.globalConfig["api_key"], "not-a-real-key")
+        self.assertNotIn("custom_id", old)
+
+    def test_ambiguous_legacy_location_does_not_choose_first_city(self):
+        self.backend.subscribe("ambiguous", {"location_mode": "custom", "custom_name": "London"})
+        self.backend.requests[-1][1]({"location": [
+            {"name": "London", "country": "Canada", "lat": 42.98, "lon": -81.25},
+            {"name": "London", "country": "United Kingdom", "lat": 51.51, "lon": -0.13}
+        ]}, None)
+        self.assertIsNone(self.backend._instances["ambiguous"]["location"])
+        self.assertIn("歧义", self.backend.weatherFailed.emissions[-1][1])
+
+    def test_language_change_invalidates_cache_and_all_old_callbacks(self):
+        self.backend.subscribe("a", {"location_mode": "auto"})
+        finish_batch(self.backend.requests)
+        self.backend.refresh("a")
+        old_weather = self.backend.requests[-3:]
+        self.backend.searchLocations("old-search", "London")
+        old_search = self.backend.requests[-1][1]
+        self.backend.set_language("en_US", str)
+        self.assertFalse(self.backend._weather_cache)
+        self.assertEqual(self.backend.weatherUpdated.emissions[-1], ("a", {}))
+        geo_path, geo_callback = self.backend.requests[-1]
+        self.assertIn("lang=en", geo_path)
+        geo_callback({"location": [{"name": "Beijing", "country": "China", "lat": 39.92, "lon": 116.41}]}, None)
+        new_weather = self.backend.requests[-3:]
+        finish_batch(old_weather)
+        old_search({"location": [{"name": "旧地区", "lat": 0, "lon": 0}]}, None)
+        self.assertFalse(self.backend._weather_cache)
+        self.assertFalse(self.backend.getLocationSearch("old-search")["done"])
+        self.assertEqual(len(self.backend._weather_inflight[self.location["key"]]["pending"]), 3)
+        finish_batch(new_weather)
+        self.assertIn("Beijing", self.backend.weatherUpdated.emissions[-1][1]["location"])
+
+    def test_invalid_global_coordinates_are_rejected(self):
+        for latitude, longitude in [(91, 0), (0, -181), (float("nan"), 0), (0, float("inf"))]:
+            self.backend._auto_inflight = True
+            self.backend._finish_ip_location({"success": True, "country_code": "US",
+                                              "latitude": latitude, "longitude": longitude}, None)
+            self.assertFalse(self.backend._auto_inflight)
+            self.assertEqual(self.backend.requests, [])
+
+    def test_alert_zero_result_failure_and_malformed_response_are_distinct(self):
+        for payload, error, available, status in [
+            ({"metadata": {"zeroResult": True}, "alerts": []}, None, True, "no_data"),
+            (None, "HTTP 404", False, "unavailable"),
+            ({"unexpected": []}, None, False, "unavailable"),
+        ]:
+            self.backend._weather_cache.clear()
+            self.backend.subscribe("a", {"location_mode": "auto"})
+            for path, callback in self.backend.requests[-3:]:
+                if "weatheralert" in path:
+                    callback(payload, error)
+                else:
+                    callback(CURRENT if "/current/" in path else DAILY, None)
+            snapshot = self.backend.weatherUpdated.emissions[-1][1]
+            self.assertEqual(snapshot["temperature"], 23)
+            self.assertEqual(snapshot["warningAvailable"], available)
+            self.assertEqual(snapshot["warningStatus"], status)
+
+    def test_geo_api_body_error_codes_are_not_reported_as_no_matches(self):
+        for code, expected in [("401", "认证"), ("403", "拒绝"), ("429", "额度"), ("404", "匹配")]:
+            self.backend.searchLocations(code, "London")
+            self.backend.requests[-1][1]({"code": code}, None)
+            self.assertIn(expected, self.backend.getLocationSearch(code)["error"])
 
     def test_auto_location_uses_city_label_and_keeps_ip_coordinates(self):
         fallback = self.backend._location(30.30, 120.10, "Hangzhou · Zhejiang")

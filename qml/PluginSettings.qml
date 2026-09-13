@@ -22,7 +22,7 @@ PluginPage {
     function saveCredentials(testAfterSave) {
         if (!pluginBackend) {
             resultSuccess = false
-            resultMessage = "天气插件后端尚未就绪，请重新打开设置页"
+            resultMessage = qsTranslate("Weather", "天气插件后端尚未就绪，请重新打开设置页")
             return
         }
         if (pluginBackend.saveWeatherCredentials(apiHost.text, apiKey.text) && testAfterSave)
@@ -40,6 +40,11 @@ PluginPage {
         }
     }
 
+    Connections {
+        target: root.pluginBackend ? root.pluginBackend.weatherBackend : null
+        function onLanguageChanged() { root.resultMessage = "" }
+    }
+
     ScrollView {
         anchors.fill: parent
         contentWidth: availableWidth
@@ -50,7 +55,7 @@ PluginPage {
 
             Label {
                 Layout.fillWidth: true
-                text: "和风天气服务"
+                text: qsTranslate("Weather", "和风天气服务")
                 font.pixelSize: 24
                 font.weight: Font.DemiBold
                 color: Colors.proxy.textColor
@@ -58,7 +63,7 @@ PluginPage {
 
             Label {
                 Layout.fillWidth: true
-                text: "请填写和风天气控制台分配的专属 API Host 与 API KEY。密钥仅保存在 ClassWidgets 本地配置中。"
+                text: qsTranslate("Weather", "请填写和风天气控制台分配的专属 API Host 与 API KEY。密钥仅保存在 ClassWidgets 本地配置中。")
                 wrapMode: Text.Wrap
                 opacity: 0.75
                 color: Colors.proxy.textSecondaryColor
@@ -68,7 +73,7 @@ PluginPage {
                 Layout.fillWidth: true
                 icon.name: "ic_fluent_globe_20_regular"
                 title: "API Host"
-                description: "仅接受 HTTPS 的 *.qweatherapi.com 专属域名"
+                description: qsTranslate("Weather", "仅接受 HTTPS 的 *.qweatherapi.com 专属域名")
 
                 TextField {
                     id: apiHost
@@ -81,12 +86,12 @@ PluginPage {
                 Layout.fillWidth: true
                 icon.name: "ic_fluent_key_20_regular"
                 title: "API KEY"
-                description: "不会写入日志或发布包"
+                description: qsTranslate("Weather", "不会写入日志或发布包")
 
                 TextField {
                     id: apiKey
                     Layout.preferredWidth: 300
-                    placeholderText: "输入 API KEY"
+                    placeholderText: qsTranslate("Weather", "输入 API KEY")
                     echoMode: TextInput.Password
                     selectByMouse: true
                 }
@@ -96,12 +101,12 @@ PluginPage {
                 Layout.fillWidth: true
 
                 Button {
-                    text: "保存"
+                    text: qsTranslate("Weather", "保存")
                     enabled: apiHost.text.trim().length > 0 && apiKey.text.length > 0
                     onClicked: root.saveCredentials(false)
                 }
                 Button {
-                    text: "保存并测试连接"
+                    text: qsTranslate("Weather", "保存并测试连接")
                     enabled: apiHost.text.trim().length > 0 && apiKey.text.length > 0
                     onClicked: root.saveCredentials(true)
                 }
@@ -119,11 +124,11 @@ PluginPage {
             RowLayout {
                 Layout.fillWidth: true
                 Button {
-                    text: "打开和风天气控制台"
+                    text: qsTranslate("Weather", "打开和风天气控制台")
                     onClicked: Qt.openUrlExternally("https://console.qweather.com/")
                 }
                 Button {
-                    text: "查看申请与认证说明"
+                    text: qsTranslate("Weather", "查看申请与认证说明")
                     onClicked: Qt.openUrlExternally("https://dev.qweather.com/docs/configuration/authentication/")
                 }
                 Item { Layout.fillWidth: true }
@@ -131,7 +136,7 @@ PluginPage {
 
             Label {
                 Layout.fillWidth: true
-                text: "定位说明：自动定位使用 ipwho.is 返回的公网 IP 近似坐标；VPN、代理和运营商出口可能导致偏差。可在小组件设置中切换为自定义地区。"
+                text: qsTranslate("Weather", "定位说明：自动定位使用 ipwho.is 返回的公网 IP 近似坐标；VPN、代理和运营商出口可能导致偏差。可在小组件设置中切换为自定义地区。")
                 wrapMode: Text.Wrap
                 opacity: 0.65
                 color: Colors.proxy.textSecondaryColor

@@ -18,6 +18,8 @@ from weather_core import (
     clamp_refresh_minutes,
     normalize_api_host,
     normalize_location_results,
+    qweather_language,
+    valid_coordinates,
 )
 
 
@@ -32,6 +34,7 @@ class WeatherBackend(QObject):
     credentialsTested = Signal(bool, str)
     globalConfigChanged = Signal()
     instanceStatusChanged = Signal(str, dict)
+    languageChanged = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -47,11 +50,49 @@ class WeatherBackend(QObject):
         self._auto_location: dict[str, Any] | None = None
         self._auto_inflight = False
         self._available_icons: set[str] = set()
+        self._language = "zh_CN"
+        self._tr = str
+        self._generation = 0
 
         self._scheduler = QTimer(self)
         self._scheduler.setInterval(30_000)
         self._scheduler.timeout.connect(self._tick)
         self._scheduler.start()
+
+    @Property(str, notify=languageChanged)
+    def language(self) -> str:
+        return self._language
+
+    def set_language(self, language: str, translate: Callable[[str], str]) -> None:
+        self._tr = translate
+        if language == self._language:
+            return
+        self._language = language
+        self._cancel_pending_requests()
+        self._weather_cache.clear()
+        self._location_searches.clear()
+        self.languageChanged.emit()
+        # Clear displayed provider text before any new request can fail.
+        for instance_id in self._instances:
+            self.weatherUpdated.emit(instance_id, {})
+        self._reconfigure_all()
+
+    def _localized_get(self, path: str, callback: JsonCallback) -> None:
+        """Ignore responses from an old language/credential generation."""
+        generation = self._generation
+
+        def finished(payload, error):
+            if generation == self._generation:
+                code = str((payload or {}).get("code") or "200")
+                if not error and code != "200":
+                    if path.startswith("/geo/") and code == "404":
+                        payload = {"location": []}
+                    else:
+                        error = self._friendly_error(int(code) if code.isdigit() else 0, code)
+                        payload = None
+                callback(payload, error)
+
+        self._qweather_get(path, finished)
 
     def bind_config(self, config: Any, save_config: Callable[[], Any]) -> None:
         self._config = config
@@ -73,7 +114,7 @@ class WeatherBackend(QObject):
         host = str(getattr(self._config, "api_host", "") or "").strip()
         key = str(getattr(self._config, "api_key", "") or "").strip()
         if not host or not key:
-            raise ValueError("请先在插件设置中配置和风天气 API Host 和 API KEY")
+            raise ValueError(self._tr("请先在插件设置中配置和风天气 API Host 和 API KEY"))
         return normalize_api_host(host), key
 
     @Slot(str, str, result=bool)
@@ -82,9 +123,9 @@ class WeatherBackend(QObject):
             host = normalize_api_host(api_host)
             key = (api_key or "").strip()
             if not key:
-                raise ValueError("请填写和风天气 API KEY")
+                raise ValueError(self._tr("请填写和风天气 API KEY"))
         except ValueError as error:
-            self.credentialsTested.emit(False, str(error))
+            self.credentialsTested.emit(False, self._tr(str(error)))
             return False
         self._config.api_host = host
         self._config.api_key = key
@@ -93,7 +134,7 @@ class WeatherBackend(QObject):
         self._cancel_pending_requests()
         self._weather_cache.clear()
         self.globalConfigChanged.emit()
-        self.credentialsTested.emit(True, "设置已保存")
+        self.credentialsTested.emit(True, self._tr("设置已保存"))
         self._reconfigure_all()
         return True
 
@@ -102,10 +143,10 @@ class WeatherBackend(QObject):
         try:
             self._credentials()
         except ValueError as error:
-            self.credentialsTested.emit(False, str(error))
+            self.credentialsTested.emit(False, self._tr(str(error)))
             return
 
-        path = "/weather/v1/current/39.92/116.41?localTime=true&lang=zh"
+        path = f"/weather/v1/current/39.92/116.41?localTime=true&lang={qweather_language(self._language)}"
 
         def finished(payload: dict[str, Any] | None, error: str | None) -> None:
             if error:
@@ -113,11 +154,11 @@ class WeatherBackend(QObject):
                 return
             condition = payload.get("condition") if isinstance(payload, dict) else None
             if not isinstance(condition, dict):
-                self.credentialsTested.emit(False, "认证成功，但实时天气响应格式异常")
+                self.credentialsTested.emit(False, self._tr("认证成功，但实时天气响应格式异常"))
                 return
-            self.credentialsTested.emit(True, "连接成功，可以获取和风天气数据")
+            self.credentialsTested.emit(True, self._tr("连接成功，可以获取和风天气数据"))
 
-        self._qweather_get(path, finished)
+        self._localized_get(path, finished)
 
     @staticmethod
     def _variant_map(value: Any) -> dict[str, Any]:
@@ -136,6 +177,8 @@ class WeatherBackend(QObject):
             "custom_name": str(raw.get("custom_name") or "").strip(),
             "custom_adm": str(raw.get("custom_adm") or "").strip(),
             "custom_label": str(raw.get("custom_label") or "").strip(),
+            "custom_id": str(raw.get("custom_id") or "").strip(),
+            "custom_country": str(raw.get("custom_country") or "").strip(),
             "refresh_minutes": clamp_refresh_minutes(raw.get("refresh_minutes", 30)),
         }
 
@@ -149,11 +192,15 @@ class WeatherBackend(QObject):
             normalized["location_mode"],
             normalized["custom_name"],
             normalized["custom_adm"],
+            normalized["custom_id"],
+            normalized["custom_country"],
         )
         state = old or {"location": None, "next_due": 0.0, "signature": None}
         changed_location = state.get("signature") != signature
         state.update(settings=normalized, signature=signature)
         if changed_location:
+            for context in self._weather_inflight.values():
+                context["waiters"].discard(instance_id)
             state["location"] = None
             state["next_due"] = 0.0
         self._instances[instance_id] = state
@@ -204,8 +251,8 @@ class WeatherBackend(QObject):
             except ValueError:
                 pass
         return {
-            "location": str(location.get("label") or "尚未定位"),
-            "updatedAt": updated_at or "尚未更新",
+            "location": str(location.get("label") or self._tr("尚未定位")),
+            "updatedAt": updated_at or self._tr("尚未更新"),
         }
 
     @Slot(str, str)
@@ -218,15 +265,15 @@ class WeatherBackend(QObject):
             self._location_searches[request_id] = {
                 "done": True,
                 "results": [],
-                "error": "请输入至少两个字符",
+                "error": self._tr("请输入至少两个字符"),
             }
-            self.locationSearchFailed.emit(request_id, "请输入至少两个字符")
+            self.locationSearchFailed.emit(request_id, self._tr("请输入至少两个字符"))
             return
         try:
             path = "/geo/v2/city/lookup?" + urlencode(
-                {"location": query, "range": "cn", "number": 20, "lang": "zh"}
+                {"location": query, "number": 20, "lang": qweather_language(self._language)}
             )
-            self._qweather_get(
+            self._localized_get(
                 path,
                 lambda payload, error: self._finish_location_search(request_id, payload, error),
             )
@@ -234,9 +281,9 @@ class WeatherBackend(QObject):
             self._location_searches[request_id] = {
                 "done": True,
                 "results": [],
-                "error": str(error),
+                "error": self._tr(str(error)),
             }
-            self.locationSearchFailed.emit(request_id, str(error))
+            self.locationSearchFailed.emit(request_id, self._tr(str(error)))
 
     @Slot(str, result=dict)
     def getLocationSearch(self, request_id: str) -> dict[str, Any]:
@@ -262,9 +309,9 @@ class WeatherBackend(QObject):
             self._location_searches[request_id] = {
                 "done": True,
                 "results": [],
-                "error": "没有找到匹配的中国地区",
+                "error": self._tr("没有找到匹配地区"),
             }
-            self.locationSearchFailed.emit(request_id, "没有找到匹配的中国地区")
+            self.locationSearchFailed.emit(request_id, self._tr("没有找到匹配地区"))
             return
         self._location_searches[request_id] = {
             "done": True,
@@ -289,42 +336,43 @@ class WeatherBackend(QObject):
             return
         self._auto_inflight = True
         url = (
-            "https://ipwho.is/?fields=success,message,latitude,longitude,city,region,country_code"
+            "https://ipwho.is/?fields=success,message,latitude,longitude,city,region,country,country_code"
         )
-        self._get_json(url, self._finish_ip_location, authenticated=False)
+        generation = self._generation
+        self._get_json(url, lambda payload, error: self._finish_ip_location(payload, error)
+                       if generation == self._generation else None, authenticated=False)
 
     def _finish_ip_location(
         self, payload: dict[str, Any] | None, error: str | None
     ) -> None:
         if error or not payload or not payload.get("success"):
             self._auto_inflight = False
-            self._fail_auto(error or str((payload or {}).get("message") or "IP 定位失败"))
-            return
-        if str(payload.get("country_code") or "").upper() != "CN":
-            self._auto_inflight = False
-            self._fail_auto("检测到境外公网 IP，可能正在使用 VPN 或代理")
+            self._fail_auto(error or str((payload or {}).get("message") or self._tr("IP 定位失败")))
             return
         try:
             latitude = float(payload["latitude"])
             longitude = float(payload["longitude"])
+            if not valid_coordinates(latitude, longitude):
+                raise ValueError("Invalid coordinates")
         except (KeyError, TypeError, ValueError):
             self._auto_inflight = False
-            self._fail_auto("IP 定位结果缺少有效坐标")
+            self._fail_auto(self._tr("IP 定位结果缺少有效坐标"))
             return
         fallback_label = " · ".join(
-            part for part in [str(payload.get("city") or ""), str(payload.get("region") or "")] if part
-        ) or "自动定位"
+            part for part in [str(payload.get("city") or ""), str(payload.get("region") or ""),
+                              str(payload.get("country") or payload.get("country_code") or "")] if part
+        ) or self._tr("自动定位")
         location = self._location(latitude, longitude, fallback_label)
         try:
             path = "/geo/v2/city/lookup?" + urlencode(
-                {"location": f"{longitude:.2f},{latitude:.2f}", "range": "cn", "number": 1, "lang": "zh"}
+                {"location": f"{longitude:.2f},{latitude:.2f}", "number": 1, "lang": qweather_language(self._language)}
             )
-            self._qweather_get(
+            self._localized_get(
                 path,
                 lambda geo, geo_error: self._finish_auto_geo(location, geo, geo_error),
             )
         except ValueError:
-            self._finish_auto_geo(location, None, "尚未配置天气服务")
+            self._finish_auto_geo(location, None, self._tr("尚未配置天气服务"))
 
     def _finish_auto_geo(
         self,
@@ -333,23 +381,25 @@ class WeatherBackend(QObject):
         error: str | None,
     ) -> None:
         location = dict(fallback)
-        fallback_label = str(location.get("label") or "自动定位")
-        if not fallback_label.endswith("（IP 近似）"):
-            location["label"] = f"{fallback_label}（IP 近似）"
+        fallback_label = str(location.get("label") or self._tr("自动定位"))
+        fallback_label = str(location.get("baseLabel") or fallback_label)
+        location["baseLabel"] = fallback_label
+        location["label"] = self._tr("{location}（IP 近似）").format(location=fallback_label)
         if not error:
             candidates = normalize_location_results(payload or {})
             if candidates:
                 candidate = candidates[0]
                 label_parts: list[str] = []
-                for part in (candidate["adm2"] or candidate["name"], candidate["adm1"]):
+                for part in (candidate["adm2"] or candidate["name"], candidate["adm1"], candidate["country"]):
                     if part and part not in label_parts:
                         label_parts.append(part)
                 label = " · ".join(label_parts) or candidate["name"]
                 location = self._location(
                     fallback["latitude"],
                     fallback["longitude"],
-                    f"{label}（IP 近似）",
+                    self._tr("{location}（IP 近似）").format(location=label),
                 )
+                location["baseLabel"] = label
         self._auto_inflight = False
         self._auto_location = location
         for instance_id, state in list(self._instances.items()):
@@ -363,7 +413,7 @@ class WeatherBackend(QObject):
                 cache = self._weather_cache.get(str(location.get("key") or ""), {})
                 self.weatherFailed.emit(
                     instance_id,
-                    f"定位失败：{message}，请改用手动选区",
+                    self._tr("定位失败：{message}，请改用手动选区").format(message=message),
                     bool(cache.get("snapshot")),
                 )
 
@@ -374,32 +424,32 @@ class WeatherBackend(QObject):
         settings = state["settings"]
         name = settings["custom_name"]
         adm = settings["custom_adm"]
-        if not name:
-            self.weatherFailed.emit(instance_id, "请在小组件设置中选择地区", False)
+        location_id = settings["custom_id"]
+        if not name and not location_id:
+            self.weatherFailed.emit(instance_id, self._tr("请在小组件设置中选择地区"), False)
             return
         params: dict[str, Any] = {
-            "location": name,
-            "range": "cn",
+            "location": location_id or name,
             "number": 20,
-            "lang": "zh",
+            "lang": qweather_language(self._language),
         }
-        if adm:
+        if adm and not location_id:
             params["adm"] = adm
         signature = state["signature"]
         try:
-            self._qweather_get(
+            self._localized_get(
                 "/geo/v2/city/lookup?" + urlencode(params),
                 lambda payload, error: self._finish_custom_location(
                     instance_id, signature, payload, error
                 ),
             )
         except ValueError as error:
-            self.weatherFailed.emit(instance_id, str(error), False)
+            self.weatherFailed.emit(instance_id, self._tr(str(error)), False)
 
     def _finish_custom_location(
         self,
         instance_id: str,
-        signature: tuple[str, str, str],
+        signature: tuple[str, ...],
         payload: dict[str, Any] | None,
         error: str | None,
     ) -> None:
@@ -410,19 +460,26 @@ class WeatherBackend(QObject):
             self.weatherFailed.emit(instance_id, error, False)
             return
         candidates = normalize_location_results(payload or {})
+        location_id = state["settings"]["custom_id"]
+        if location_id:
+            candidates = [item for item in candidates if item["id"] == location_id]
+        elif state["settings"]["custom_country"]:
+            candidates = [item for item in candidates
+                          if item["country"] == state["settings"]["custom_country"]]
         if not candidates:
-            self.weatherFailed.emit(instance_id, "无法解析已选择的地区，请重新搜索", False)
+            self.weatherFailed.emit(instance_id, self._tr("无法解析已选择的地区，请重新搜索"), False)
             return
         name = state["settings"]["custom_name"]
         adm = state["settings"]["custom_adm"]
-        selected = next(
-            (
-                item
-                for item in candidates
-                if item["name"] == name and (not adm or adm in {item["adm"], item["adm1"], item["adm2"]})
-            ),
-            candidates[0],
-        )
+        matches = [item for item in candidates if item["name"] == name
+                   and (not adm or adm in {item["adm"], item["adm1"], item["adm2"]})]
+        if location_id or len(candidates) == 1:
+            selected = candidates[0]
+        elif len(matches) == 1:
+            selected = matches[0]
+        else:
+            self.weatherFailed.emit(instance_id, self._tr("地区名称存在歧义，请重新搜索并选择准确城市"), False)
+            return
         self._set_instance_location(
             instance_id,
             self._location(selected["latitude"], selected["longitude"], selected["label"]),
@@ -455,7 +512,7 @@ class WeatherBackend(QObject):
         try:
             self._credentials()
         except ValueError as error:
-            self.weatherFailed.emit(instance_id, str(error), False)
+            self.weatherFailed.emit(instance_id, self._tr(str(error)), False)
             return
         location = state["location"]
         key = location["key"]
@@ -483,12 +540,12 @@ class WeatherBackend(QObject):
         }
         self._weather_inflight[key] = context
         paths = {
-            "current": f"/weather/v1/current/{lat:.2f}/{lon:.2f}?localTime=true&lang=zh",
-            "daily": f"/weather/v1/daily/{lat:.2f}/{lon:.2f}?days=1&localTime=true&lang=zh",
-            "alerts": f"/weatheralert/v1/current/{lat:.2f}/{lon:.2f}?localTime=true&lang=zh",
+            "current": f"/weather/v1/current/{lat:.2f}/{lon:.2f}?localTime=true&lang={qweather_language(self._language)}",
+            "daily": f"/weather/v1/daily/{lat:.2f}/{lon:.2f}?days=1&localTime=true&lang={qweather_language(self._language)}",
+            "alerts": f"/weatheralert/v1/current/{lat:.2f}/{lon:.2f}?localTime=true&lang={qweather_language(self._language)}",
         }
         for kind, path in paths.items():
-            self._qweather_get(
+            self._localized_get(
                 path,
                 lambda payload, error, item=kind, cache_key=key: self._weather_part_finished(
                     cache_key, item, payload, error
@@ -506,6 +563,13 @@ class WeatherBackend(QObject):
         if not context:
             return
         context["pending"].discard(kind)
+        if kind == "alerts" and not error:
+            data = payload or {}
+            metadata = data.get("metadata") or {}
+            if not isinstance(data.get("alerts", data.get("warning")), list) and not (
+                isinstance(metadata, dict) and metadata.get("zeroResult") is True
+            ):
+                error = self._tr("预警响应格式无效")
         if error:
             context["errors"][kind] = error
         elif payload is not None:
@@ -530,20 +594,23 @@ class WeatherBackend(QObject):
                 context["payloads"].get("alerts", {}),
                 context["location"]["label"],
                 datetime.now(timezone.utc),
+                language=qweather_language(self._language),
+                tr=self._tr,
             )
         except (KeyError, WeatherDataError, TypeError, ValueError) as error:
-            self._publish_failure(waiters, f"天气数据解析失败：{error}", cached)
+            self._publish_failure(waiters, self._tr("天气数据解析失败：{error}").format(error=error), cached)
             return
 
         alert_error = errors.get("alerts")
         if alert_error:
             snapshot["warningAvailable"] = False
+            snapshot["warningStatus"] = "unavailable"
             old_alert = (cached or {}).get("snapshot", {}).get("alert")
             if old_alert:
                 snapshot["alert"] = dict(old_alert)
                 snapshot["alertStale"] = True
             for instance_id in waiters:
-                self.weatherFailed.emit(instance_id, f"预警数据暂不可用：{alert_error}", True)
+                self.weatherFailed.emit(instance_id, self._tr("预警数据暂不可用：{error}").format(error=alert_error), True)
 
         code = str(snapshot.get("conditionCode") or "999")
         if self._available_icons and code not in self._available_icons:
@@ -612,15 +679,17 @@ class WeatherBackend(QObject):
         path = "/geo/v2/city/lookup?" + urlencode(
             {
                 "location": f"{fallback['longitude']:.2f},{fallback['latitude']:.2f}",
-                "range": "cn",
                 "number": 1,
-                "lang": "zh",
+                "lang": qweather_language(self._language),
             }
         )
-        self._qweather_get(
-            path,
-            lambda payload, error: self._finish_auto_geo(fallback, payload, error),
-        )
+        try:
+            self._localized_get(
+                path,
+                lambda payload, error: self._finish_auto_geo(fallback, payload, error),
+            )
+        except ValueError as error:
+            self._finish_auto_geo(fallback, None, self._tr(str(error)))
 
     def _qweather_get(self, path: str, callback: JsonCallback) -> None:
         host, _ = self._credentials()
@@ -668,7 +737,7 @@ class WeatherBackend(QObject):
         except RuntimeError:
             pass
         reply.deleteLater()
-        callback(None, "天气服务连接超时")
+        callback(None, self._tr("天气服务连接超时"))
 
     def _finish_reply(self, reply: QNetworkReply) -> None:
         callback = self._callbacks.pop(reply, None)
@@ -696,7 +765,7 @@ class WeatherBackend(QObject):
         if network_error or status >= 400:
             callback(
                 None,
-                "天气服务连接超时"
+                self._tr("天气服务连接超时")
                 if timed_out and not status
                 else self._friendly_error(status, error_text),
             )
@@ -704,26 +773,25 @@ class WeatherBackend(QObject):
         try:
             payload = json.loads(raw.decode("utf-8"))
             if not isinstance(payload, dict):
-                raise ValueError("JSON 根节点不是对象")
+                raise ValueError(self._tr("JSON 根节点不是对象"))
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
-            callback(None, f"服务响应无法解析：{error}")
+            callback(None, self._tr("服务响应无法解析：{error}").format(error=error))
             return
         callback(payload, None)
 
-    @staticmethod
-    def _friendly_error(status: int, fallback: str) -> str:
+    def _friendly_error(self, status: int, fallback: str) -> str:
         if status == 401:
-            return "认证失败，请检查 API Host 和 API KEY"
+            return self._tr("认证失败，请检查 API Host 和 API KEY")
         if status == 403:
-            return "请求被拒绝，请检查凭据权限和 API Host"
+            return self._tr("请求被拒绝，请检查凭据权限和 API Host")
         if status == 429:
-            return "请求过于频繁或免费额度已用尽"
+            return self._tr("请求过于频繁或免费额度已用尽")
         if status:
-            return f"天气服务返回 HTTP {status}"
+            return self._tr("天气服务返回 HTTP {status}").format(status=status)
         lowered = (fallback or "").lower()
         if "timeout" in lowered or "timed out" in lowered:
-            return "天气服务连接超时"
-        return f"网络请求失败：{fallback or '未知错误'}"
+            return self._tr("天气服务连接超时")
+        return self._tr("网络请求失败：{error}").format(error=fallback or self._tr("未知错误"))
 
     def shutdown(self) -> None:
         self._scheduler.stop()
@@ -735,6 +803,7 @@ class WeatherBackend(QObject):
         self._instances.clear()
 
     def _cancel_pending_requests(self) -> None:
+        self._generation += 1
         for timeout in list(self._reply_timers.values()):
             timeout.stop()
             timeout.deleteLater()
@@ -754,4 +823,4 @@ class WeatherBackend(QObject):
         self._auto_inflight = False
         for request_id, state in list(self._location_searches.items()):
             if not state["done"]:
-                self._finish_location_search(request_id, None, "搜索已取消，请重新搜索")
+                self._finish_location_search(request_id, None, self._tr("搜索已取消，请重新搜索"))

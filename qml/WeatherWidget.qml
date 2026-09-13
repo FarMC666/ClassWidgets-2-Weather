@@ -28,7 +28,7 @@ Widget {
 
     function readableTime(value) {
         if (!value)
-            return "未提供"
+            return qsTranslate("Weather", "未提供")
         var date = new Date(value)
         if (isNaN(date.getTime()))
             return value
@@ -41,15 +41,15 @@ Widget {
             parts.push(alertData.senderName)
         if (alertData && alertData.sources)
             parts = parts.concat(alertData.sources)
-        return parts.length ? parts.join("、") : "QWeather"
+        return parts.length ? parts.join(" · ") : "QWeather"
     }
 
     function summaryText() {
         if (hasAlert)
             return alertData.name
         if (snapshot.temperatureMax !== undefined)
-            return "最高 " + snapshot.temperatureMax + "°  最低 " + snapshot.temperatureMin + "°"
-        return errorMessage || "正在获取天气…"
+            return qsTranslate("Weather", "最高 %1°  最低 %2°").arg(snapshot.temperatureMax).arg(snapshot.temperatureMin)
+        return errorMessage || qsTranslate("Weather", "正在获取天气…")
     }
 
     Component.onCompleted: subscribeNow()
@@ -72,7 +72,7 @@ Widget {
                 return
             root.snapshot = data || {}
             root.errorMessage = data && data.warningAvailable === false
-                              ? "预警数据暂不可用" : ""
+                              ? qsTranslate("Weather", "预警数据暂不可用") : ""
             if (!root.hasAlert)
                 root.detailsExpanded = false
         }
@@ -123,7 +123,7 @@ Widget {
             Text {
                 Layout.fillWidth: true
                 text: root.hasAlert ? root.alertData.name
-                                    : (root.snapshot.conditionText || root.errorMessage || "加载中…")
+                                    : (root.snapshot.conditionText || root.errorMessage || qsTranslate("Weather", "加载中…"))
                 color: root.primaryTextColor
                 font.pixelSize: 16
                 font.weight: Font.DemiBold
@@ -181,7 +181,7 @@ Widget {
 
                 Text {
                     Layout.fillWidth: true
-                    text: root.snapshot.conditionText || root.errorMessage || "正在获取天气…"
+                    text: root.snapshot.conditionText || root.errorMessage || qsTranslate("Weather", "正在获取天气…")
                     color: root.primaryTextColor
                     font.pixelSize: 16
                     font.weight: Font.DemiBold
@@ -191,7 +191,7 @@ Widget {
 
                 Text {
                     visible: !!root.snapshot.stale || root.snapshot.warningAvailable === false
-                    text: root.snapshot.stale ? "已过期" : "预警待更新"
+                    text: root.snapshot.stale ? qsTranslate("Weather", "已过期") : qsTranslate("Weather", "预警待更新")
                     color: root.secondaryTextColor
                     font.pixelSize: 9
                 }
@@ -216,7 +216,7 @@ Widget {
                     anchors.fill: parent
                     visible: root.hasAlert
                     text: (root.alertData ? root.alertData.name : "")
-                          + (root.detailsExpanded ? "  收起详情" : "  查看详情 ›")
+                          + (root.detailsExpanded ? qsTranslate("Weather", "  收起详情") : qsTranslate("Weather", "  查看详情 ›"))
                     color: root.primaryTextColor
                     font.pixelSize: 13
                     font.weight: Font.Bold
@@ -264,29 +264,29 @@ Widget {
                     Text {
                         Layout.fillWidth: true
                         visible: root.alertData && !!root.alertData.instruction
-                        text: "防御指南：" + (root.alertData ? root.alertData.instruction : "")
+                        text: qsTranslate("Weather", "防御指南：%1").arg(root.alertData ? root.alertData.instruction : "")
                         color: root.primaryTextColor
                         font.pixelSize: 12
                         wrapMode: Text.Wrap
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: "发布时间：" + root.readableTime(root.alertData ? root.alertData.issuedTime : "")
+                        text: qsTranslate("Weather", "发布时间：%1").arg(root.readableTime(root.alertData ? root.alertData.issuedTime : ""))
                         color: root.secondaryTextColor
                         font.pixelSize: 10
                         wrapMode: Text.Wrap
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: "有效期：" + root.readableTime(root.alertData ? root.alertData.effectiveTime : "")
-                              + " 至 " + root.readableTime(root.alertData ? root.alertData.expireTime : "")
+                        text: qsTranslate("Weather", "有效期：%1 至 %2").arg(root.readableTime(root.alertData ? root.alertData.effectiveTime : ""))
+                              .arg(root.readableTime(root.alertData ? root.alertData.expireTime : ""))
                         color: root.secondaryTextColor
                         font.pixelSize: 10
                         wrapMode: Text.Wrap
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: "来源：" + root.sourceText()
+                        text: qsTranslate("Weather", "来源：%1").arg(root.sourceText())
                         color: root.secondaryTextColor
                         font.pixelSize: 10
                         wrapMode: Text.Wrap

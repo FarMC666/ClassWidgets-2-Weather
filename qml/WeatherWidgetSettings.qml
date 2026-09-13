@@ -17,7 +17,7 @@ SettingsLayout {
     property bool initializing: true
     property string actionKind: ""
     property string actionMessage: ""
-    property var instanceStatus: ({"location": "尚未定位", "updatedAt": "尚未更新"})
+    property var instanceStatus: ({"location": qsTranslate("Weather", "尚未定位"), "updatedAt": qsTranslate("Weather", "尚未更新")})
 
     function resolveWeatherBackend() {
         // Widget dialogs share the widgets window, which exposes WidgetsModel
@@ -56,7 +56,7 @@ SettingsLayout {
         root.searching = false
         root.searchResults = results || []
         root.searchMessage = message || (root.searchResults.length
-                             ? "请选择准确地区" : "没有匹配地区")
+                             ? qsTranslate("Weather", "请选择准确地区") : qsTranslate("Weather", "没有匹配地区"))
     }
 
     function searchLocations() {
@@ -64,14 +64,14 @@ SettingsLayout {
             return
         root.requestId = root.instanceId + "-" + Date.now()
         root.searching = true
-        root.searchMessage = "正在搜索…"
+        root.searchMessage = qsTranslate("Weather", "正在搜索…")
         root.searchResults = []
         // Start before calling Python: it can fail or finish synchronously.
         searchTimeout.restart()
         try {
             root.weatherBackend.searchLocations(root.requestId, locationQuery.text)
         } catch (error) {
-            finishSearch(root.requestId, [], "无法启动地区搜索，请重新加载天气插件后重试")
+            finishSearch(root.requestId, [], qsTranslate("Weather", "无法启动地区搜索，请重新加载天气插件后重试"))
         }
     }
 
@@ -83,20 +83,20 @@ SettingsLayout {
             if (status && status.location && status.updatedAt)
                 root.instanceStatus = status
             else
-                root.actionMessage = "暂时无法读取当前状态，请重新加载天气插件"
+                root.actionMessage = qsTranslate("Weather", "暂时无法读取当前状态，请重新加载天气插件")
         } catch (error) {
-            root.actionMessage = "暂时无法读取当前状态，请重新加载天气插件"
+            root.actionMessage = qsTranslate("Weather", "暂时无法读取当前状态，请重新加载天气插件")
         }
     }
 
     function runInstanceAction(kind) {
         if (!root.weatherBackend || !root.instanceId) {
-            root.actionMessage = "操作失败：未找到小组件实例"
+            root.actionMessage = qsTranslate("Weather", "操作失败：未找到小组件实例")
             return
         }
         root.weatherBackend.subscribe(root.instanceId, root.settings || {})
         root.actionKind = kind
-        root.actionMessage = kind === "relocate" ? "正在重新检测公网 IP 位置…" : "正在刷新天气…"
+        root.actionMessage = kind === "relocate" ? qsTranslate("Weather", "正在重新检测公网 IP 位置…") : qsTranslate("Weather", "正在刷新天气…")
         if (kind === "relocate")
             root.weatherBackend.relocate(root.instanceId)
         else
@@ -114,7 +114,7 @@ SettingsLayout {
             root.weatherBackend.subscribe(instanceId, root.settings || {})
             updateInstanceStatus()
         } else if (!root.weatherBackend) {
-            root.actionMessage = "天气后端尚未就绪，正在等待小组件加载…"
+            root.actionMessage = qsTranslate("Weather", "天气后端尚未就绪，正在等待小组件加载…")
         }
     }
 
@@ -136,7 +136,7 @@ SettingsLayout {
         interval: 20000
         repeat: false
         onTriggered: {
-            root.finishSearch(root.requestId, [], "搜索超时，请检查网络、VPN 或 API Host 后重试")
+            root.finishSearch(root.requestId, [], qsTranslate("Weather", "搜索超时，请检查网络、VPN 或 API Host 后重试"))
         }
     }
 
@@ -150,7 +150,7 @@ SettingsLayout {
                 if (state && state.done)
                     root.finishSearch(root.requestId, state.results, state.error)
             } catch (error) {
-                root.finishSearch(root.requestId, [], "无法读取搜索结果，请重新加载天气插件后重试")
+                root.finishSearch(root.requestId, [], qsTranslate("Weather", "无法读取搜索结果，请重新加载天气插件后重试"))
             }
         }
     }
@@ -168,6 +168,22 @@ SettingsLayout {
     Connections {
         target: root.weatherBackend
 
+        function onLanguageChanged() {
+            searchTimeout.stop()
+            root.searching = false
+            root.searchResults = []
+            root.searchMessage = ""
+            root.actionMessage = ""
+            root.actionKind = ""
+            if (root.locationSelectionPending) {
+                root.searchMessage = qsTranslate("Weather", "已选择：%1（点击确定后生效）").arg((root.settings || {}).custom_label || "")
+                root.instanceStatus = ({"location": (root.settings || {}).custom_label || "",
+                                        "updatedAt": qsTranslate("Weather", "保存后自动刷新")})
+            } else {
+                root.updateInstanceStatus()
+            }
+        }
+
         function onLocationSearchFinished(targetRequestId, results) {
             root.finishSearch(targetRequestId, results, "")
         }
@@ -181,7 +197,7 @@ SettingsLayout {
                 return
             root.instanceStatus = status
             if (root.actionKind === "relocate") {
-                root.actionMessage = "位置检测完成：" + (status.location || "尚未定位")
+                root.actionMessage = qsTranslate("Weather", "位置检测完成：%1").arg(status.location || qsTranslate("Weather", "尚未定位"))
                 root.actionKind = ""
             }
         }
@@ -191,10 +207,10 @@ SettingsLayout {
                 return
             root.updateInstanceStatus()
             if (root.actionKind === "refresh") {
-                root.actionMessage = "天气刷新完成"
+                root.actionMessage = qsTranslate("Weather", "天气刷新完成")
                 root.actionKind = ""
             } else if (!root.actionKind && data && !data.stale) {
-                root.actionMessage = data.warningAvailable === false ? "预警数据暂不可用" : ""
+                root.actionMessage = data.warningAvailable === false ? qsTranslate("Weather", "预警数据暂不可用") : ""
             }
         }
 
@@ -209,12 +225,12 @@ SettingsLayout {
     SettingCard {
         Layout.fillWidth: true
         icon.name: "ic_fluent_location_20_regular"
-        title: "定位方式"
-        description: "自动定位使用公网 IP 推测位置；也可手动选择到区县"
+        title: qsTranslate("Weather", "定位方式")
+        description: qsTranslate("Weather", "自动定位使用公网 IP 推测位置；也可手动选择全球城市")
 
         ComboBox {
             id: locationMode
-            model: ["自动定位", "自定义地区"]
+            model: [qsTranslate("Weather", "自动定位"), qsTranslate("Weather", "自定义地区")]
             onActivated: root.saveLocationMode(currentIndex === 1 ? "custom" : "auto")
         }
     }
@@ -223,19 +239,19 @@ SettingsLayout {
         Layout.fillWidth: true
         visible: locationMode.currentIndex === 1
         icon.name: "ic_fluent_search_20_regular"
-        title: "搜索地区"
-        description: (root.settings || {}).custom_label || "输入区县、城市或省份名称"
+        title: qsTranslate("Weather", "搜索地区")
+        description: (root.settings || {}).custom_label || qsTranslate("Weather", "输入全球城市或地区名称")
 
         RowLayout {
             TextField {
                 id: locationQuery
                 Layout.preferredWidth: 190
-                placeholderText: "例如：海淀区"
+                placeholderText: qsTranslate("Weather", "例如：北京、London、東京")
                 onAccepted: searchButton.clicked()
             }
             Button {
                 id: searchButton
-                text: root.searching ? "重试" : "搜索"
+                text: root.searching ? qsTranslate("Weather", "重试") : qsTranslate("Weather", "搜索")
                 enabled: root.weatherBackend && locationQuery.text.trim().length >= 2
                 onClicked: root.searchLocations()
             }
@@ -254,6 +270,7 @@ SettingsLayout {
         }
 
         Repeater {
+            id: locationResults
             model: root.searchResults
             delegate: Button {
                 required property var modelData
@@ -263,14 +280,16 @@ SettingsLayout {
                     root.updateSettings({
                         "custom_name": modelData.name,
                         "custom_adm": modelData.adm,
-                        "custom_label": modelData.label
+                        "custom_label": modelData.label,
+                        "custom_id": modelData.id || "",
+                        "custom_country": modelData.country || ""
                     })
                     root.locationSelectionPending = true
-                    root.searchMessage = "已选择：" + modelData.label + "（点击确定后生效）"
+                    root.searchMessage = qsTranslate("Weather", "已选择：%1（点击确定后生效）").arg(modelData.label)
                     root.searchResults = []
                     root.instanceStatus = ({
                         "location": modelData.label,
-                        "updatedAt": "保存后自动刷新"
+                        "updatedAt": qsTranslate("Weather", "保存后自动刷新")
                     })
                 }
             }
@@ -280,8 +299,8 @@ SettingsLayout {
     SettingCard {
         Layout.fillWidth: true
         icon.name: "ic_fluent_timer_20_regular"
-        title: "刷新间隔"
-        description: "15–360 分钟，默认 30 分钟"
+        title: qsTranslate("Weather", "刷新间隔")
+        description: qsTranslate("Weather", "15–360 分钟，默认 30 分钟")
 
         SpinBox {
             id: refreshInterval
@@ -300,19 +319,19 @@ SettingsLayout {
     SettingCard {
         Layout.fillWidth: true
         icon.name: "ic_fluent_weather_cloudy_20_regular"
-        title: "当前状态"
-        description: "地区：" + (root.instanceStatus.location || "尚未定位")
-                     + "\n最近更新：" + (root.instanceStatus.updatedAt || "尚未更新")
+        title: qsTranslate("Weather", "当前状态")
+        description: qsTranslate("Weather", "地区：%1\n最近更新：%2").arg(root.instanceStatus.location || qsTranslate("Weather", "尚未定位"))
+                     .arg(root.instanceStatus.updatedAt || qsTranslate("Weather", "尚未更新"))
                      + (root.actionMessage ? "\n" + root.actionMessage : "")
 
         RowLayout {
             Button {
-                text: "立即刷新"
+                text: qsTranslate("Weather", "立即刷新")
                 enabled: !!root.weatherBackend
                 onClicked: root.runInstanceAction("refresh")
             }
             Button {
-                text: "重新检测位置"
+                text: qsTranslate("Weather", "重新检测位置")
                 visible: locationMode.currentIndex === 0
                 enabled: !!root.weatherBackend
                 onClicked: root.runInstanceAction("relocate")

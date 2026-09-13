@@ -289,7 +289,7 @@ class WeatherBackend(QObject):
             return
         self._auto_inflight = True
         url = (
-            "https://ipwho.is/?fields=success,message,latitude,longitude,city,region,country_code"
+            "https://ipwho.is/?fields=success,message,latitude,longitude,city,region"
         )
         self._get_json(url, self._finish_ip_location, authenticated=False)
 
@@ -299,10 +299,6 @@ class WeatherBackend(QObject):
         if error or not payload or not payload.get("success"):
             self._auto_inflight = False
             self._fail_auto(error or str((payload or {}).get("message") or "IP 定位失败"))
-            return
-        if str(payload.get("country_code") or "").upper() != "CN":
-            self._auto_inflight = False
-            self._fail_auto("检测到境外公网 IP，可能正在使用 VPN 或代理")
             return
         try:
             latitude = float(payload["latitude"])

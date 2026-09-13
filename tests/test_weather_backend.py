@@ -250,7 +250,7 @@ class WeatherBackendCoordinationTests(unittest.TestCase):
         self.assertIn("请求被拒绝", self.backend._friendly_error(403, ""))
         self.assertIn("额度", self.backend._friendly_error(429, ""))
 
-    def test_foreign_ip_is_rejected_for_auto_location(self):
+    def test_foreign_ip_is_accepted_for_auto_location(self):
         self.backend._auto_location = None
         self.backend._instances["a"] = {
             "settings": {"location_mode": "auto", "refresh_minutes": 30},
@@ -270,9 +270,14 @@ class WeatherBackendCoordinationTests(unittest.TestCase):
             None,
         )
 
+        path, callback = self.backend.requests[-1]
+        self.assertIn("location=-118.24%2C34.05", path)
+        callback(None, "没有匹配的地区")
+
         self.assertFalse(self.backend._auto_inflight)
-        self.assertIsNone(self.backend._auto_location)
-        self.assertIn("VPN", self.backend.weatherFailed.emissions[-1][1])
+        self.assertEqual(self.backend._auto_location["latitude"], 34.05)
+        self.assertEqual(self.backend._auto_location["longitude"], -118.24)
+        self.assertEqual(self.backend._auto_location["label"], "Los Angeles（IP 近似）")
 
     def test_auto_location_uses_city_label_and_keeps_ip_coordinates(self):
         fallback = self.backend._location(30.30, 120.10, "Hangzhou · Zhejiang")

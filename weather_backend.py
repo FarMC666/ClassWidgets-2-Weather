@@ -700,7 +700,7 @@ class WeatherBackend(QObject):
     ) -> None:
         request = QNetworkRequest(QUrl(url))
         request.setRawHeader(b"Accept", b"application/json")
-        request.setRawHeader(b"User-Agent", b"ClassWidgets-Weather/0.1.7")
+        request.setRawHeader(b"User-Agent", b"ClassWidgets-Weather/0.2.0")
         if hasattr(request, "setTransferTimeout"):
             request.setTransferTimeout(15_000)
         if authenticated:

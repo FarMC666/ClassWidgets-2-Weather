@@ -1,6 +1,6 @@
 [project]
 name = "com-farmc-classwidgets-weather"
-version = "0.1.7"
+version = "0.2.0"
 description = "A QWeather widget plugin for ClassWidgets 2."
 authors = [
     {name = "FarMC"},

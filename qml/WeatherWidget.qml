@@ -138,8 +138,12 @@ Widget {
                 font.pixelSize: 9
                 opacity: 0.85
                 TapHandler {
+                    enabled: !root.hide
                     gesturePolicy: TapHandler.WithinBounds
-                    onTapped: Qt.openUrlExternally("https://www.qweather.com/")
+                    onTapped: {
+                        if (!root.hide)
+                            Qt.openUrlExternally("https://www.qweather.com/")
+                    }
                 }
             }
         }
@@ -295,11 +299,17 @@ Widget {
             }
 
             RowLayout {
+                objectName: "weatherLocationFooter"
                 Layout.fillWidth: true
+                spacing: 8
 
                 Text {
+                    objectName: "weatherLocation"
                     Layout.fillWidth: true
-                    text: root.snapshot.location || ""
+                    text: (root.snapshot.locationName || root.snapshot.location || "").split("·")[0].trim()
+                    textFormat: Text.PlainText
+                    wrapMode: Text.NoWrap
+                    maximumLineCount: 1
                     color: root.secondaryTextColor
                     font.pixelSize: 9
                     elide: Text.ElideRight
@@ -310,10 +320,14 @@ Widget {
                     color: root.secondaryTextColor
                     font.pixelSize: 9
                     font.underline: qweatherHover.hovered
-                    HoverHandler { id: qweatherHover }
+                    HoverHandler { id: qweatherHover; enabled: !root.hide }
                     TapHandler {
+                        enabled: !root.hide
                         gesturePolicy: TapHandler.WithinBounds
-                        onTapped: Qt.openUrlExternally("https://www.qweather.com/")
+                        onTapped: {
+                            if (!root.hide)
+                                Qt.openUrlExternally("https://www.qweather.com/")
+                        }
                     }
                 }
             }

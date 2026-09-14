@@ -279,6 +279,10 @@ class WeatherBackendCoordinationTests(unittest.TestCase):
         self.assertIn("Los Angeles", self.backend._auto_location["label"])
         self.assertIn("IP 近似", self.backend._auto_location["label"])
         self.assertEqual(len(self.backend.requests), 4)
+        finish_batch(self.backend.requests[-3:])
+        snapshot = self.backend.weatherUpdated.emissions[-1][1]
+        self.assertEqual(snapshot["locationName"], "Los Angeles")
+        self.assertEqual(snapshot["location"], "Los Angeles · US")
 
     def test_global_search_and_credentials_use_host_language(self):
         for locale, lang in [("en_US", "en"), ("ja_JP", "ja"), ("zh_HK", "zh-hant")]:
@@ -308,6 +312,49 @@ class WeatherBackendCoordinationTests(unittest.TestCase):
         for path, _ in self.backend.requests[-3:]:
             self.assertIn("/51.51/-0.13?", path)
             self.assertIn("lang=en", path)
+        finish_batch(self.backend.requests[-3:])
+        snapshot = self.backend.weatherUpdated.emissions[-1][1]
+        self.assertEqual(snapshot["locationName"], "London")
+        self.assertEqual(snapshot["location"], "London · United Kingdom")
+
+    def test_district_name_is_short_but_settings_keep_full_location(self):
+        self.backend.subscribe("district", {"location_mode": "custom", "custom_name": "余杭区"})
+        self.backend.requests[-1][1]({"location": [
+            {"name": "余杭区", "adm2": "杭州", "adm1": "浙江", "lat": 30.42, "lon": 119.98}
+        ]}, None)
+        finish_batch(self.backend.requests[-3:])
+        snapshot = self.backend.weatherUpdated.emissions[-1][1]
+        self.assertEqual(snapshot["locationName"], "余杭区")
+        self.assertEqual(self.backend.getInstanceStatus("district")["location"], "余杭区 · 杭州 · 浙江")
+
+    def test_shared_weather_preserves_each_instances_short_and_full_location(self):
+        auto = self.backend._location(30.30, 120.10, "杭州 · 浙江省（IP 近似）", "杭州")
+        auto["baseLabel"] = "杭州 · 浙江省"
+        self.backend._auto_location = auto
+        self.backend.subscribe("auto", {"location_mode": "auto"})
+        pending_weather = list(self.backend.requests)
+        self.backend.subscribe("custom", {"location_mode": "custom", "custom_name": "拱墅"})
+        self.backend.requests[-1][1]({"location": [
+            {"name": "拱墅", "adm2": "杭州", "adm1": "浙江省", "lat": 30.30, "lon": 120.10}
+        ]}, None)
+        finish_batch(pending_weather)
+        snapshots = dict(self.backend.weatherUpdated.emissions)
+        self.assertEqual(snapshots["auto"]["locationName"], "杭州")
+        self.assertEqual(snapshots["auto"]["location"], "杭州 · 浙江省")
+        self.assertEqual(snapshots["custom"]["locationName"], "拱墅")
+        self.assertEqual(snapshots["custom"]["location"], "拱墅 · 杭州 · 浙江省")
+        self.assertIn("IP 近似", self.backend.getInstanceStatus("auto")["location"])
+        # Cache hits and stale data must use the same presentation path.
+        count = len(self.backend.requests)
+        self.backend.subscribe("cached", {"location_mode": "auto"})
+        self.assertEqual(len(self.backend.requests), count)
+        self.assertEqual(self.backend.weatherUpdated.emissions[-1][1]["locationName"], "杭州")
+        self.backend.refresh("custom")
+        finish_batch(self.backend.requests[-3:], {"/weather/v1/current/": "timeout"})
+        stale = self.backend.weatherUpdated.emissions[-1][1]
+        self.assertTrue(stale["stale"])
+        self.assertEqual(stale["locationName"], "拱墅")
+        self.assertEqual(stale["location"], "拱墅 · 杭州 · 浙江省")
 
     def test_legacy_settings_still_resolve_and_preserve_credentials(self):
         old = {"location_mode": "custom", "custom_name": "海淀", "custom_adm": "北京",
@@ -415,6 +462,10 @@ class WeatherBackendCoordinationTests(unittest.TestCase):
         self.assertEqual(location["label"], "杭州 · 浙江省（IP 近似）")
         self.assertEqual(location["latitude"], 30.30)
         self.assertEqual(location["longitude"], 120.10)
+        finish_batch(self.backend.requests)
+        snapshot = self.backend.weatherUpdated.emissions[-1][1]
+        self.assertEqual(snapshot["locationName"], "杭州")
+        self.assertEqual(snapshot["location"], "杭州 · 浙江省")
 
     def test_absolute_timeout_finishes_callback_once(self):
         class FakeReply:

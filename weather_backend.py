@@ -362,7 +362,10 @@ class WeatherBackend(QObject):
             part for part in [str(payload.get("city") or ""), str(payload.get("region") or ""),
                               str(payload.get("country") or payload.get("country_code") or "")] if part
         ) or self._tr("自动定位")
-        location = self._location(latitude, longitude, fallback_label)
+        short_name = str(payload.get("city") or payload.get("region") or
+                         payload.get("country") or payload.get("country_code") or
+                         self._tr("自动定位"))
+        location = self._location(latitude, longitude, fallback_label, short_name)
         try:
             path = "/geo/v2/city/lookup?" + urlencode(
                 {"location": f"{longitude:.2f},{latitude:.2f}", "number": 1, "lang": qweather_language(self._language)}
@@ -398,6 +401,7 @@ class WeatherBackend(QObject):
                     fallback["latitude"],
                     fallback["longitude"],
                     self._tr("{location}（IP 近似）").format(location=label),
+                    candidate["adm2"] or candidate["name"],
                 )
                 location["baseLabel"] = label
         self._auto_inflight = False
@@ -482,17 +486,18 @@ class WeatherBackend(QObject):
             return
         self._set_instance_location(
             instance_id,
-            self._location(selected["latitude"], selected["longitude"], selected["label"]),
+            self._location(selected["latitude"], selected["longitude"], selected["label"], selected["name"]),
         )
 
     @staticmethod
-    def _location(latitude: float, longitude: float, label: str) -> dict[str, Any]:
+    def _location(latitude: float, longitude: float, label: str, short_name: str = "") -> dict[str, Any]:
         latitude = round(float(latitude), 2)
         longitude = round(float(longitude), 2)
         return {
             "latitude": latitude,
             "longitude": longitude,
             "label": label,
+            "shortName": short_name or label.split(" · ", 1)[0],
             "key": f"{latitude:.2f},{longitude:.2f}",
         }
 
@@ -504,6 +509,14 @@ class WeatherBackend(QObject):
         state["next_due"] = 0.0
         self.instanceStatusChanged.emit(instance_id, self.getInstanceStatus(instance_id))
         self._request_weather(instance_id)
+
+    def _snapshot_for_instance(self, instance_id: str, snapshot: dict[str, Any]) -> dict[str, Any]:
+        """Keep display names instance-specific while weather caches share coordinates."""
+        location = self._instances.get(instance_id, {}).get("location") or {}
+        result = dict(snapshot)
+        result["location"] = location.get("baseLabel") or location.get("label") or snapshot.get("location", "")
+        result["locationName"] = location.get("shortName") or result["location"].split(" · ", 1)[0]
+        return result
 
     def _request_weather(self, instance_id: str, force: bool = False) -> None:
         state = self._instances.get(instance_id)
@@ -520,7 +533,7 @@ class WeatherBackend(QObject):
         cached = self._weather_cache.get(key)
         interval = state["settings"]["refresh_minutes"] * 60
         if cached and not force and now - cached["fetched"] < interval:
-            self.weatherUpdated.emit(instance_id, dict(cached["snapshot"]))
+            self.weatherUpdated.emit(instance_id, self._snapshot_for_instance(instance_id, cached["snapshot"]))
             state["next_due"] = cached["fetched"] + interval
             self.instanceStatusChanged.emit(instance_id, self.getInstanceStatus(instance_id))
             return
@@ -628,7 +641,7 @@ class WeatherBackend(QObject):
             if not state:
                 continue
             state["next_due"] = fetched + state["settings"]["refresh_minutes"] * 60
-            self.weatherUpdated.emit(instance_id, dict(snapshot))
+            self.weatherUpdated.emit(instance_id, self._snapshot_for_instance(instance_id, snapshot))
             self.instanceStatusChanged.emit(instance_id, self.getInstanceStatus(instance_id))
 
     def _publish_failure(
@@ -644,7 +657,7 @@ class WeatherBackend(QObject):
             if has_cache:
                 stale = dict(cached["snapshot"])
                 stale["stale"] = True
-                self.weatherUpdated.emit(instance_id, stale)
+                self.weatherUpdated.emit(instance_id, self._snapshot_for_instance(instance_id, stale))
             self.weatherFailed.emit(instance_id, message, has_cache)
             if state:
                 state["next_due"] = now + min(

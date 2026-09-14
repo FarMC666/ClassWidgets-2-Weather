@@ -109,7 +109,7 @@ def main():
         theme = Path(temp) / "ClassWidgets/Theme"
         theme.mkdir(parents=True)
         (theme / "qmldir").write_text("module ClassWidgets.Theme\nWidget 1.0 Widget.qml\nTitle 1.0 Title.qml\n")
-        (theme / "Widget.qml").write_text('import QtQuick\nItem { property bool miniMode: false; property var backend: null; property var settings: ({}); property string instanceId: ""; property string text: "" }')
+        (theme / "Widget.qml").write_text('import QtQuick\nItem { property bool miniMode: false; property bool hide: false; property var backend: null; property var settings: ({}); property string instanceId: ""; property string text: "" }')
         (theme / "Title.qml").write_text('import QtQuick\nText { property int px: 25; font.pixelSize: px }')
         engine = QQmlEngine()
         engine.addImportPath(temp)

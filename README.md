@@ -40,7 +40,7 @@ API Host 必须为控制台分配的 HTTPS `*.qweatherapi.com` 域名。API KEY 
 
 ## 国际化实现
 
-修改前核对了 ClassWidgets 2 官方 `main` 的源码（提交 `94885c1a2f12d32ef007e06d9ec0320f0fd14e01`）：[AppTranslator](https://github.com/RinLit-233-shiroko/Class-Widgets-2/blob/94885c1a2f12d32ef007e06d9ec0320f0fd14e01/src/core/utils/translator.py) 使用 Qt `QTranslator`、`.ts/.qm` 和 `QLocale`；[公共插件 API](https://github.com/RinLit-233-shiroko/Class-Widgets-2/blob/94885c1a2f12d32ef007e06d9ec0320f0fd14e01/src/core/plugin/components.py) 提供 `globalconfig.configs`，未提供单独的插件翻译目录加载接口。因此插件复用 Qt 翻译系统，通过 `configChanged` 跟随 `locale.language`，仅管理自身翻译文件的安装与卸载，不额外保存语言配置。
+插件使用 Qt 翻译系统，自动跟随 ClassWidgets 的语言设置，无需单独配置语言。
 
 翻译文件位于 `locales/`，QML 使用 `qsTranslate`，Python 使用 `QCoreApplication.translate`，上下文统一为 `Weather`。切换宿主语言会刷新注册标题、取消旧请求、清除旧语言缓存并重新请求地点与天气；不会为了更换语言再次检测已取得的公网 IP 坐标。繁体中文地区映射为 QWeather `zh-hant`，其他语言按官方支持代码映射，未支持的代码回退 `en`。
 
@@ -72,7 +72,7 @@ cw-plugin-pack .
 
 ## 发布
 
-本项目没有直接套用 ClassWidgets 2 官方插件模板，版本由维护者手动发布：
+版本由维护者手动发布：
 
 1. 使用 ClassWidgets SDK 生成 `.cwplugin` 和 `.zip` 安装包。
 2. 在 [GitHub Releases](https://github.com/FarMC666/ClassWidgets-2-Weather/releases) 创建对应版本并上传安装包。
@@ -85,7 +85,7 @@ cw-plugin-pack --format zip .
 
 ## 图标与署名
 
-插件图标为项目自有图标。小组件中的天气状态图标来自 [QWeather Icons](https://github.com/qwd/Icons)，随插件本地打包并按主题文字颜色着色。图标仓库许可见 `assets/icons/LICENSE-QWEATHER-ICONS`；额外署名说明见 [NOTICE](NOTICE)。天气数据界面始终显示可点击的 `QWeather` 来源标注，预警详情同时展示接口提供的来源信息。
+插件图标为项目自有图标。小组件中的天气状态图标来自 [QWeather Icons](https://github.com/qwd/Icons)，随插件本地打包并按主题文字颜色着色。图标仓库许可见 `assets/icons/LICENSE-QWEATHER-ICONS`；额外署名说明见 [NOTICE](NOTICE)。天气数据界面显示 `QWeather` 来源标注，组件栏展开时可点击访问；预警详情同时展示接口提供的来源信息。
 
 ## 许可证
 
